@@ -1,6 +1,5 @@
-from datetime import datetime
-
-from dateutil.rrule import rrule
+import pendulum
+from flask_session.sessions import total_seconds
 
 from ..enums.frequency import Frequency
 
@@ -17,19 +16,29 @@ class Dataset:
 
         # Generated
         self.path_template = self.__generate_path_template__()
+        self.timeout = self.__generate_timeout__()
 
 
     # Given the frequency append the base_dir with a jinja datetime template.
-    def __generate_path_template__(self):
+    def __generate_path_template__(self) -> str:
         suffix = self.suffix_dir + "/" if self.suffix_dir else ""
         match self.frequency:
             case Frequency.HOURLY:
                 return f"{self.base_dir}/%Y/%m/%d/%H/{suffix}"
             case Frequency.DAILY:
-                return f"{self.base_dir}/%Y/%m/%d/{suffix}/"
+                return f"{self.base_dir}/%Y/%m/%d/{suffix}"
             case Frequency.WEEKLY:
-                # Here for custom weekly implementation in future
-                return f"{self.base_dir}/%Y/%m/%d/{suffix}/"
+                return f"{self.base_dir}/%Y/%m/%d/{suffix}"
             case Frequency.MONTHLY:
-                return f"{self.base_dir}/%Y/%m/{suffix}/"
+                return f"{self.base_dir}/%Y/%m/{suffix}"
 
+    def __generate_timeout__(self) -> float:
+        match self.frequency:
+            case Frequency.HOURLY:
+                return pendulum.duration(hours=1).total_seconds()
+            case Frequency.DAILY:
+                return pendulum.duration(days=1).total_seconds()
+            case Frequency.WEEKLY:
+                return pendulum.duration(weeks=1).total_seconds()
+            case Frequency.MONTHLY:
+                return pendulum.duration(months=1).total_seconds()
