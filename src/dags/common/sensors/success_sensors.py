@@ -8,46 +8,40 @@ from typing import Any, Sequence
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.hooks.filesystem import FSHook
+from airflow.models import Variable
 from airflow.sensors.base import BaseSensorOperator, PokeReturnValue
 from airflow.triggers.base import StartTriggerArgs
 from airflow.utils.context import Context
 from airflow.utils.decorators import apply_defaults
 
 from .triggers.files import FileLatestTrigger, __check_interval_paths__
+from ..env import global_config
 from ..enums.frequency import Frequency
 from ..datasets import Dataset
 from ..sensors.triggers.files import FileIntervalTrigger
 
-class DatasetIntervalSensor(BaseSensorOperator):
+class BaseDatasetSensor(BaseSensorOperator):
 
     template_fields: Sequence[str] = ("target_date",)
-    start_trigger_args = StartTriggerArgs(
-        trigger_cls="src.common.sensors.triggers.FileIntervalTrigger",
-        trigger_kwargs={},
-        next_method="execute_complete",
-        next_kwargs=None,
-        timeout=None,
-    )
-    start_from_trigger = False
 
     @apply_defaults
     def __init__(
-        self,
-        *,
-        dataset: Dataset,
-        target_date,
-        intervals,
-        task_id=None,
-        poke_interval=None,
-        timeout=None,
-        fs_conn_id="fs_default",
-        deferrable: bool = conf.getboolean("operators", "default_deferrable", fallback=False),
-        start_from_trigger: bool = False,
-        trigger_kwargs: dict[str, Any] | None = None,
-        **kwargs,
+            self,
+            *,
+            task_id,
+            dataset: Dataset,
+            target_date,
+            intervals,
+            fs_conn_id=global_config[Variable.get("env")]["fs_default"],
+            poke_interval=None,
+            timeout=None,
+            deferrable: bool = conf.getboolean("operators", "default_deferrable", fallback=False),
+            start_from_trigger: bool = False,
+            trigger_kwargs: dict[str, Any] | None = None,
+            **kwargs,
     ):
-        super(DatasetIntervalSensor, self).__init__(
-            task_id=f"{dataset.name.lower()}_interval_sensor" if not task_id else task_id,
+        super().__init__(
+            task_id=task_id,
             poke_interval=int(pendulum.duration(minutes=5).total_seconds()) if not poke_interval else poke_interval,
             timeout=dataset.timeout if not timeout else timeout,
             **kwargs
@@ -57,17 +51,8 @@ class DatasetIntervalSensor(BaseSensorOperator):
         self.intervals = intervals
         self.fs_conn_id = fs_conn_id
         self.deferrable = deferrable
-
         self.start_from_trigger = start_from_trigger
 
-        if self.deferrable and self.start_from_trigger:
-            self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
-            self.start_trigger_args.trigger_kwargs = dict(
-                dataset=self.dataset,
-                paths=self.paths,
-                recursive=False,
-                poke_interval=self.poke_interval,
-            )
 
     @cached_property
     def paths(self) -> list:
@@ -82,6 +67,49 @@ class DatasetIntervalSensor(BaseSensorOperator):
         date_times = pendulum.interval(dt_start, dt_end).range(self.dataset.frequency.value)
         return [os.path.join(base_path, dt.strftime(self.dataset.path_template)) + "_SUCCESS" for dt in date_times]
 
+
+class DatasetIntervalSensor(BaseDatasetSensor):
+
+    template_fields: Sequence[str] = ("target_date",)
+    start_trigger_args = StartTriggerArgs(
+        trigger_cls="src.common.sensors.triggers.FileIntervalTrigger",
+        trigger_kwargs={},
+        next_method="execute_complete",
+        next_kwargs=None,
+        timeout=None,
+    )
+
+    @apply_defaults
+    def __init__(
+        self,
+        *,
+        dataset: Dataset,
+        target_date,
+        intervals,
+        task_id=None,
+        poke_interval=None,
+        timeout=None,
+        **kwargs,
+    ):
+        super().__init__(
+            dataset=dataset,
+            target_date=target_date,
+            intervals=intervals,
+            task_id=f"{dataset.name.lower()}_interval_sensor" if not task_id else task_id,
+            poke_interval=poke_interval,
+            timeout=timeout,
+            **kwargs
+        )
+
+        if self.deferrable and self.start_from_trigger:
+            self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
+            self.start_trigger_args.trigger_kwargs = dict(
+                dataset=self.dataset,
+                paths=self.paths,
+                recursive=False,
+                poke_interval=self.poke_interval,
+            )
+
     def poke(self, context: Context) -> PokeReturnValue:
         results = []
         for path in self.paths:
@@ -91,7 +119,7 @@ class DatasetIntervalSensor(BaseSensorOperator):
 
     def execute(self, context: Context) -> None:
         if not self.deferrable:
-            super().execute(context=context)
+            self.xcom_push(context, self.dataset.name.lower(), super().execute(context=context))
         if not self.poke(context=context):
             self.defer(
                 timeout=timedelta(seconds=self.timeout),
@@ -106,10 +134,10 @@ class DatasetIntervalSensor(BaseSensorOperator):
         if not event:
             raise AirflowException("%s task failed as no success files found in %s.", self.task_id, self.paths)
         self.log.info("%s completed successfully as all success files found.", self.task_id)
-        self.xcom_push(context, f"{self.dataset.name}_paths", self.paths)
+        self.xcom_push(context, self.dataset.name.lower(), self.paths)
 
 
-class DatasetLatestSensor(DatasetIntervalSensor):
+class DatasetLatestSensor(BaseDatasetSensor):
 
     start_trigger_args = StartTriggerArgs(
         trigger_cls="src.common.sensors.triggers.FileLatestTrigger",
@@ -118,41 +146,37 @@ class DatasetLatestSensor(DatasetIntervalSensor):
         next_kwargs=None,
         timeout=None,
     )
-    start_from_trigger = False
 
     @apply_defaults
     def __init__(
             self,
             *,
             dataset: Dataset,
+            target_date,
+            intervals,
             task_id=None,
             poke_interval=None,
             timeout=None,
-            target_date,
-            intervals,
             **kwargs
     ):
 
-        super(DatasetLatestSensor, self).__init__(task_id=f"{dataset.name.lower()}_latest_sensor" if not task_id else task_id,
-                                                  poke_interval=int(pendulum.duration(minutes=5).total_seconds()) if not poke_interval else poke_interval,
-                                                  timeout=dataset.timeout if not timeout else timeout,
-                                                  dataset=dataset,
-                                                  target_date=target_date,
-                                                  intervals=intervals, **kwargs)
-        self.latest_path=None
+        super().__init__(
+            task_id=f"{dataset.name.lower()}_latest_sensor" if not task_id else task_id,
+            poke_interval=int(pendulum.duration(minutes=5).total_seconds()) if not poke_interval else poke_interval,
+            timeout=dataset.timeout if not timeout else timeout,
+            dataset=dataset,
+            target_date=target_date,
+            intervals=intervals,
+            **kwargs
+        )
 
-
-    def execute(self, context: Context) -> None:
-        if not self.deferrable:
-            super().execute(context=context)
-        if not self.poke(context=context):
-            self.defer(
-                timeout=timedelta(seconds=self.timeout),
-                trigger=FileLatestTrigger(
-                    paths=self.paths,
-                    poke_interval=self.poke_interval,
-                ),
-                method_name="execute_complete",
+        if self.deferrable and self.start_from_trigger:
+            self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
+            self.start_trigger_args.trigger_kwargs = dict(
+                dataset=self.dataset,
+                paths=self.paths,
+                recursive=False,
+                poke_interval=self.poke_interval,
             )
 
     def poke(self, context: Context) -> PokeReturnValue:
@@ -166,13 +190,25 @@ class DatasetLatestSensor(DatasetIntervalSensor):
 
             for _, _, files in os.walk(path):
                 if files:
-                    self.latest_path = path
                     return PokeReturnValue(is_done=True, xcom_value=path)
 
         return PokeReturnValue(is_done=False)
+
+    def execute(self, context: Context) -> None:
+        if not self.deferrable:
+            self.xcom_push(context, self.dataset.name.lower(), super().execute(context=context))
+        if not self.poke(context=context):
+            self.defer(
+                timeout=timedelta(seconds=self.timeout),
+                trigger=FileLatestTrigger(
+                    paths=self.paths,
+                    poke_interval=self.poke_interval,
+                ),
+                method_name="execute_complete",
+            )
 
     def execute_complete(self, context: Context, event: str | None = None) -> None:
         if not event:
             raise AirflowException("%s task failed as no success files found in %s.", self.task_id, self.paths)
         self.log.info("%s completed successfully as latest success files found.", self.task_id)
-        self.xcom_push(context, f"{self.dataset.name}_latest_path", event)
+        self.xcom_push(context, self.dataset.name.lower(), event)
