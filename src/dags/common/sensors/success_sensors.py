@@ -32,7 +32,7 @@ class BaseDatasetSensor(BaseSensorOperator):
             dataset: Dataset,
             target_date,
             intervals,
-            fs_conn_id=global_config[Variable.get("env")]["fs_default"],
+            fs_conn_id=global_config[Variable.get("env")]["fs_conn"],
             poke_interval=None,
             timeout=None,
             deferrable: bool = conf.getboolean("operators", "default_deferrable", fallback=False),
@@ -57,7 +57,7 @@ class BaseDatasetSensor(BaseSensorOperator):
     @cached_property
     def paths(self) -> list:
         hook = FSHook(self.fs_conn_id)
-        base_path = hook.get_path()
+        base_path = hook.get_path() + "/data"
         dt_start = pendulum.parse(self.target_date)
         dt_end = dt_start.add(
             months=self.intervals if self.dataset.frequency == Frequency.MONTHLY else 0,
@@ -95,11 +95,13 @@ class DatasetIntervalSensor(BaseDatasetSensor):
             dataset=dataset,
             target_date=target_date,
             intervals=intervals,
-            task_id=f"{dataset.name.lower()}_interval_sensor" if not task_id else task_id,
+            task_id=f"{dataset.name.lower()}_input_sensor" if not task_id else task_id,
             poke_interval=poke_interval,
             timeout=timeout,
             **kwargs
         )
+
+        self.xcom_key = f"input_{self.dataset.name.lower()}"
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
@@ -119,7 +121,7 @@ class DatasetIntervalSensor(BaseDatasetSensor):
 
     def execute(self, context: Context) -> None:
         if not self.deferrable:
-            self.xcom_push(context, self.dataset.name.lower(), super().execute(context=context))
+            self.xcom_push(context, self.xcom_key, super().execute(context=context))
         if not self.poke(context=context):
             self.defer(
                 timeout=timedelta(seconds=self.timeout),
@@ -134,7 +136,7 @@ class DatasetIntervalSensor(BaseDatasetSensor):
         if not event:
             raise AirflowException("%s task failed as no success files found in %s.", self.task_id, self.paths)
         self.log.info("%s completed successfully as all success files found.", self.task_id)
-        self.xcom_push(context, self.dataset.name.lower(), self.paths)
+        self.xcom_push(context, self.xcom_key, self.paths)
 
 
 class DatasetLatestSensor(BaseDatasetSensor):
@@ -161,7 +163,7 @@ class DatasetLatestSensor(BaseDatasetSensor):
     ):
 
         super().__init__(
-            task_id=f"{dataset.name.lower()}_latest_sensor" if not task_id else task_id,
+            task_id=f"{dataset.name.lower()}_input_sensor" if not task_id else task_id,
             poke_interval=int(pendulum.duration(minutes=5).total_seconds()) if not poke_interval else poke_interval,
             timeout=dataset.timeout if not timeout else timeout,
             dataset=dataset,
@@ -169,6 +171,8 @@ class DatasetLatestSensor(BaseDatasetSensor):
             intervals=intervals,
             **kwargs
         )
+
+        self.xcom_key = f"input_{self.dataset.name.lower()}"
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
@@ -196,7 +200,7 @@ class DatasetLatestSensor(BaseDatasetSensor):
 
     def execute(self, context: Context) -> None:
         if not self.deferrable:
-            self.xcom_push(context, self.dataset.name.lower(), super().execute(context=context))
+            self.xcom_push(context, self.xcom_key, super().execute(context=context))
         if not self.poke(context=context):
             self.defer(
                 timeout=timedelta(seconds=self.timeout),
@@ -211,4 +215,4 @@ class DatasetLatestSensor(BaseDatasetSensor):
         if not event:
             raise AirflowException("%s task failed as no success files found in %s.", self.task_id, self.paths)
         self.log.info("%s completed successfully as latest success files found.", self.task_id)
-        self.xcom_push(context, self.dataset.name.lower(), event)
+        self.xcom_push(context, self.xcom_key, event)
