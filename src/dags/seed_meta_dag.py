@@ -13,25 +13,13 @@ from common.operators.spark_submit import BaseSparkSubmitOperator
 from common.operators.dataset_xcom_utils import XcomPushDatasetPaths, xcom_pull_input_paths, xcom_pull_output_path
 
 with DAG(
-    dag_id="example_data_etl",
+    dag_id="seed_data",
     start_date=datetime.datetime(2024, 12, 5, 14),
     end_date=datetime.datetime(2024, 12, 6),
-    schedule="@hourly",
-    tags=[Tags.DRUID]
+    schedule="@daily",
+    tags=[Tags.META, Tags.SEED]
 ):
     logical_date = "{{ logical_date }}"
-
-    example_data_sensor = DatasetIntervalSensor(
-        dataset=example_calories_output,
-        target_date=logical_date,
-        intervals=-1
-    )
-
-    example_meta_sensor = DatasetLatestSensor(
-        dataset=example_meta_people,
-        target_date=logical_date,
-        intervals=-3
-    )
 
     example_output = XcomPushDatasetPaths(
         dataset=example_calories_output,
