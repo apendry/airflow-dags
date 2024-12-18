@@ -101,7 +101,7 @@ class DatasetIntervalSensor(BaseDatasetSensor):
             **kwargs
         )
 
-        self.xcom_key = f"input_{self.dataset.name.lower()}"
+        self.xcom_key = f"success_{self.dataset.name.lower()}"
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
@@ -172,7 +172,7 @@ class DatasetLatestSensor(BaseDatasetSensor):
             **kwargs
         )
 
-        self.xcom_key = f"input_{self.dataset.name.lower()}"
+        self.xcom_key = f"{self.dataset.name.lower()}_success_paths"
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)

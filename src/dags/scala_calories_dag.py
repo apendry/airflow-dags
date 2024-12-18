@@ -10,10 +10,10 @@ from common.sensors.success_sensors import DatasetIntervalSensor
 from common.datasets import example_meta_people
 from common.sensors.success_sensors import DatasetLatestSensor
 from common.operators.spark_submit import BaseSparkSubmitOperator
-from common.operators.dataset_xcom_utils import XcomPushDatasetPaths, xcom_pull_input_paths, xcom_pull_output_path
+from common.operators.dataset_xcom_utils import PushOutputDatasetPaths, xcom_pull_input_paths, xcom_pull_output_path
 
 with DAG(
-    dag_id="example_data_etl",
+    dag_id="scala_calories_dag",
     start_date=datetime.datetime(2024, 12, 5, 14),
     end_date=datetime.datetime(2024, 12, 6),
     schedule="@hourly",
@@ -33,7 +33,7 @@ with DAG(
         intervals=-3
     )
 
-    example_output = XcomPushDatasetPaths(
+    example_output = PushOutputDatasetPaths(
         dataset=example_calories_output,
         target_date=logical_date,
     )
