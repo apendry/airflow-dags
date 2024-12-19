@@ -7,7 +7,8 @@ from airflow.models import BaseOperator
 from airflow.utils.context import Context
 from airflow.utils.decorators import apply_defaults
 
-from common.enums.frequency import Frequency
+from ..enums.frequency import Frequency
+from ..enums.xcom import TaskIds, Keys
 
 
 class PushOutputDatasetPaths(BaseOperator):
@@ -21,17 +22,16 @@ class PushOutputDatasetPaths(BaseOperator):
             dataset,
             target_date,
             intervals = 0,
-            task_id = None,
             fs_conn_id = "fs_default",
             **kwargs
     ):
-        self.task_id = task_id if task_id else f"push_{dataset.name.lower()}_paths"
+        self.task_id = TaskIds.output(dataset)
         super().__init__(task_id = self.task_id, **kwargs)
         self.dataset = dataset
         self.target_date = target_date
         self.intervals = intervals
         self.fs_conn_id = fs_conn_id
-        self.xcom_key = f"{self.dataset.name.lower()}_output_paths"
+        self.xcom_key = Keys.output(self.dataset)
 
     def execute(self, context: Context) -> None:
         hook = FSHook(self.fs_conn_id)
@@ -72,8 +72,8 @@ class PullInputPaths(PullDatasetPaths):
     def execute(self, context: Context) -> Any:
         return self.xcom_pull(
             context=context,
-            task_ids=f"{self.dataset.name.lower()}_input_sensor",
-            key=f"{self.dataset.name.lower()}_success_paths",
+            task_ids=TaskIds.input(self.dataset),
+            key=Keys.input(self.dataset),
         )
 
 class PullOutputPaths(PullDatasetPaths):
@@ -83,6 +83,6 @@ class PullOutputPaths(PullDatasetPaths):
     def execute(self, context: Context) -> Any:
         return self.xcom_pull(
             context=context,
-            task_ids=f"push_{self.dataset.name.lower()}_paths",
-            key=f"{self.dataset.name.lower()}_output_paths",
+            task_ids=TaskIds.output.value(self.dataset),
+            key=Keys.output.value(self.dataset),
         )

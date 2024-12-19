@@ -35,7 +35,7 @@ with DAG(
 
     spark_submit = BaseSparkSubmitOperator(
         scala_class="org.etl.sparkscala.seed.SeedDataBatch",
-        application_jar="/jar/",
+        application_jar="spark-scala-etl-uber-0.1.0-SNAPSHOT.jar",
         outputs=[
             example_meta_people,
             example_meta_activity

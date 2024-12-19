@@ -17,6 +17,7 @@ from airflow.utils.decorators import apply_defaults
 from .triggers.files import FileLatestTrigger, __check_interval_paths__
 from ..env import global_config
 from ..enums.frequency import Frequency
+from ..enums.xcom import TaskIds, Keys
 from ..datasets import Dataset
 from ..sensors.triggers.files import FileIntervalTrigger
 
@@ -86,7 +87,6 @@ class DatasetIntervalSensor(BaseDatasetSensor):
         dataset: Dataset,
         target_date,
         intervals,
-        task_id=None,
         poke_interval=None,
         timeout=None,
         **kwargs,
@@ -95,13 +95,13 @@ class DatasetIntervalSensor(BaseDatasetSensor):
             dataset=dataset,
             target_date=target_date,
             intervals=intervals,
-            task_id=f"{dataset.name.lower()}_input_sensor" if not task_id else task_id,
+            task_id=TaskIds.input(dataset),
             poke_interval=poke_interval,
             timeout=timeout,
             **kwargs
         )
 
-        self.xcom_key = f"success_{self.dataset.name.lower()}"
+        self.xcom_key = Keys.input(self.dataset)
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
@@ -156,14 +156,13 @@ class DatasetLatestSensor(BaseDatasetSensor):
             dataset: Dataset,
             target_date,
             intervals,
-            task_id=None,
             poke_interval=None,
             timeout=None,
             **kwargs
     ):
 
         super().__init__(
-            task_id=f"{dataset.name.lower()}_input_sensor" if not task_id else task_id,
+            task_id=f"{dataset.name.lower()}_input_sensor",
             poke_interval=int(pendulum.duration(minutes=5).total_seconds()) if not poke_interval else poke_interval,
             timeout=dataset.timeout if not timeout else timeout,
             dataset=dataset,
@@ -172,7 +171,7 @@ class DatasetLatestSensor(BaseDatasetSensor):
             **kwargs
         )
 
-        self.xcom_key = f"{self.dataset.name.lower()}_success_paths"
+        self.xcom_key = Keys.input(self.dataset)
 
         if self.deferrable and self.start_from_trigger:
             self.start_trigger_args.timeout = timedelta(seconds=self.timeout)
